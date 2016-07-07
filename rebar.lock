@@ -1,0 +1,4 @@
+[{<<"dirwatch">>,
+  {git,"http://github.com/tokenrove/erl-dirwatch.git",
+       {ref,"d4e2eebd508ecac8d93caf41417f3d5089f25942"}},
+  0}].
