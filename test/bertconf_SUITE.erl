@@ -69,7 +69,7 @@ table_version(Config) ->
     lib_SUITE:bump_time(File),
 
     %% wait for reload
-    timer:sleep(950),
+    timer:sleep(1200),
 
     old = bertconf:version(format, Version),
     NewVersion = bertconf:version(format),

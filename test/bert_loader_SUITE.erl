@@ -74,7 +74,7 @@ observe_changes(Config) ->
     file:write_file(File, term_to_binary(NewList)),
     lib_SUITE:bump_time(File),
     %% wait for reload
-    timer:sleep(750),
+    timer:sleep(1200),
     [#tab{id=Format2}] = ets:lookup(?TABLE, format),
     true = Format1 =/= Format2,
     [#tab{}] = ets:lookup(?TABLE, newtable),
@@ -86,5 +86,5 @@ observe_changes(Config) ->
     %% force a reload
     file:write_file(File, term_to_binary(NewList)),
     lib_SUITE:bump_time(File),
-    timer:sleep(750),
+    timer:sleep(1200),
     undefined = ets:info(Format1).

@@ -5,7 +5,12 @@
          code_change/3, terminate/2]).
 
 -include("bertconf.hrl").
--record(state, {watches, changes=[], old_tables=[], reloader=undefined}).
+-record(state, {timer_ref, watches, changes=[], old_tables=[], reloader=undefined, needs_reload=false}).
+
+% Since bertconfs can have dependency on other bertconf, the cooldown
+% gives a chance for a full set of bertconfs to be written before we
+% start loading it.
+-define(DIRWATCH_COOLDOWN, 500).
 
 %%% PUBLIC INTERFACE %%%
 start_link() ->
@@ -16,14 +21,11 @@ init([]) ->
     process_flag(trap_exit, true),
     ?MODULE = ets:new(?MODULE, [named_table, set, public, {keypos, #tab.name}, {read_concurrency, true}]),
     {Old, Changes} = reload_bert_sync([]),
-    {ok,
-     #state{watches=[begin
-                         {ok,Pid} = dirwatch:start(self(), P, reload_delay()),
-                         Pid
-                     end || P <- find_dirs()],
-            changes=Changes,
-            old_tables=Old},
-     hibernate}.
+    Timer = erlang:start_timer(reload_delay(), self(), reload),
+    Watches = [begin
+                   {ok,Pid} = dirwatch:start(self(), P, ?DIRWATCH_COOLDOWN), Pid
+               end || P <- find_dirs()],
+    {ok, #state{timer_ref=Timer, watches=Watches, changes=Changes, old_tables=Old}, hibernate}.
 
 handle_call(_Event, _From, State) ->
     {noreply, State}.
@@ -31,12 +33,10 @@ handle_call(_Event, _From, State) ->
 handle_cast(_Event, State) ->
     {noreply, State}.
 
-handle_info({dirwatch, _Pid, changed}, S=#state{changes=Chg, reloader=undefined}) ->
-    {noreply, S#state{reloader = reload_bert_async(Chg)}, hibernate};
-handle_info({dirwatch, _Pid, changed}, S=#state{reloader=R}) ->
-    %% Trying to reload before previous reload is finished
-    R ! needs_reload,
-    {noreply, S, hibernate};
+handle_info({timeout, Ref, reload}, S=#state{timer_ref=Ref}) ->
+    {noreply, handle_timer(S), hibernate};
+handle_info({dirwatch, _Pid, changed}, S=#state{}) ->
+    {noreply, S#state{needs_reload = true}, hibernate};
 handle_info({reloaded, OldTables, NewChanges}, S=#state{old_tables=Old}) ->
     delete_tables(Old),
     {noreply, S#state{changes=NewChanges, old_tables=OldTables, reloader=undefined}, hibernate};
@@ -57,6 +57,14 @@ terminate(_Reason, #state{watches=Ws}) ->
 %%% PRIVATE %%%
 %%%%%%%%%%%%%%%
 
+handle_timer(State=#state{changes=Changes, reloader=undefined, needs_reload=true}) ->
+    Timer = erlang:start_timer(reload_delay(), self(), reload),
+    Reloader = reload_bert_async(Changes),
+    State#state{timer_ref=Timer, reloader=Reloader, needs_reload=false};
+handle_timer(State=#state{}) ->
+    Timer = erlang:start_timer(reload_delay(), self(), reload),
+    State#state{timer_ref=Timer}.
+
 reload_bert_async(Chg) ->
     spawn_opt(fun () -> reload_bert(Chg) end, [link, {min_heap_size, 8000000}]).
 
@@ -75,10 +83,6 @@ reload_bert(OldChanges) ->
     NewTables = store(merge(lists:sort(lists:flatten(Terms)))),
     OldTables = update_table_index(NewTables),
     NewChanges = lists:append([Refs || {_, Refs} <- Changes]),
-    receive needs_reload ->
-            reload_bert(Changes)
-    after 0 -> ok
-    end,
     ?MODULE ! {reloaded, OldTables, NewChanges}.
 
 reload_bert_file(File) ->
