@@ -3,7 +3,7 @@
   {vsn, git},
   {modules, [bertconf, bertconf_sup, bertconf_lib, bertconf_bert_loader]},
   {registered, []},
-  {applications, [kernel, stdlib]},
+  {applications, [kernel, stdlib, dirwatch]},
   {mod, {bertconf, []}},
   {env, [
     {delay, 5000},
@@ -11,4 +11,3 @@
    ]}
  ]
 }.
-
